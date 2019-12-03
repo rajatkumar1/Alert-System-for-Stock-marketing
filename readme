@@ -1,0 +1,225 @@
+from fyers_api import accessToken
+from fyers_api import fyersModel
+import pandas as pd
+from pandas import DataFrame
+import time
+import datetime
+import time
+import requests
+from datetime import datetime
+import schedule
+import logging
+clist = []
+#import stock3
+
+
+#Here we generate the authorization_code to authorize the app 
+#in visual studio code we have to print the response to get the authorization_code
+#in this code we comment the response we already copy the  authorization_code
+app_id = open("api_id.txt", "r").read()
+app_secret = open("app_secret.txt", "r").read()
+app_session = accessToken.SessionModel(app_id, app_secret)
+response = app_session.auth()
+print (response)
+
+#Now we generate the access token
+#you have toh generate the authorization_code after in active
+#Again we comment the app_session.generate_token(), we copy the token
+authorization_code = open("authorization_code.txt", "r").read()
+app_session.set_token(authorization_code)
+app_session.generate_token()
+#print(app_session.generate_token())
+
+#Here we check we connected to the api or not
+#comment the print(fyers) after check
+#you have toh generate the token after in active
+token = open("token.txt", "r").read()
+is_async = False #(By default False, Change to True for asnyc API calls.))
+fyers = fyersModel.FyersModel(is_async)
+#print(fyers)
+
+#Here we check the profile through the token
+#comment the print so we can't get again and agian profile
+"""profile = fyers.get_profile(token = token)
+print(profile)"""
+op=0
+cl=0
+cname = ""
+to = 0
+fr = 0
+cash = 0
+def fileread():
+    df3=pd.read_excel('company.xls')
+    print(df3)
+    conv(df3)
+ 
+def fet(fr,to,tim,df3):
+    
+    global op
+    global cl
+    global cname
+    
+    
+    
+    for row in df3.iterrows():
+        cname=row[1][0]
+        op=row[1][1]
+        cl=row[1][2]
+        cash=row[1][3]
+        print("company=",cname)
+        data1 = fyers.get_historical_OHLCV(
+        token = token,
+        data = {
+        "symbol" : cname,
+        "resolution" : "1",
+        "From" :fr ,
+        "to" :to
+        }
+        )
+        df=pd.DataFrame(data1['data'])
+        ct=df['o'].count()
+        
+        loop=int(ct/tim)
+        #print(df)
+        #print(df.columns)
+        #hel(df,loop,tim) 
+        consolidate(df,loop,tim)
+
+
+
+
+
+def hel(dfd):
+    global cash
+    df2=pd.DataFrame(columns=["Open","High","Low","Close","HA_Close","HA_High","HA_Low","HA_Open"])
+    
+    
+    df2['HA_Close']=(dfd['Open']+ dfd['High']+ dfd['Low']+dfd['Close'])/4
+    df2['Open']=dfd['Open']
+    df2['Close']=dfd['Close']
+    df2['High']=dfd['High']
+    df2['Low']=dfd['Low']
+    idx = dfd.index.name
+    df2.reset_index(inplace=True)
+
+    for i in range(0, len(dfd)):
+        print("i=",i)
+        if i == 0:
+            df2.at[i, 'HA_Open']= ((op+cl) / 2)
+            
+        else:
+            print("hello")
+            df2.at[i, 'HA_Open']=((df2.at[i - 1, 'HA_Open'] + df2.at[i - 1, 'HA_Close']) / 2)
+        i=i+1    
+            
+
+    if idx:
+        df2.set_index(idx, inplace=True)
+
+    df2['HA_High']=df2[['HA_Open','HA_Close','High']].max(axis=1)
+    df2['HA_Low']=df2[['HA_Open','HA_Close','Low']].min(axis=1)
+    #print("data=")
+    print(str(datetime.fromtimestamp(int(fr))))
+    print(df2)
+
+
+    ran=float(abs(df2['HA_High']-df2['HA_Low']))
+    body=float(abs(df2['HA_Open']-df2['HA_Close']))
+    half=ran/5    
+    
+    if cname not in clist:
+
+        if ran <= cash:
+
+            company = ("STOCK "+cname)
+            a = ("time="+str(datetime.fromtimestamp(int(fr))))
+            clist.append(cname)
+            tele(a,company,df2['HA_Close'],df2['HA_High'],df2['HA_Low'],df2['HA_Open'])
+                
+        
+
+def tele(a,company,cl,hi,low,lw):
+    bot_token = '986625783:AAEmqQ2WVKVi3TgYn79Fd5aYvXoSKdObRZw'
+    bot_chatID = '@algotradealert'
+    bot_message =  "KK 2.0 Alert" + "\n" + company + "\n" + a + "\n" + "Open =" +  str(lw) + "\n" + "High =" + str(hi) + "\n" + "Low =" + str(low) + "\n" + "Close =" + str(cl)
+    send_text = 'https://api.telegram.org/bot' + bot_token + '/sendMessage?chat_id=' + bot_chatID + '&parse_mode=Markdown&text=' + bot_message
+    
+
+    response = requests.get(send_text)
+
+    return response.json()           
+       
+
+
+def consolidate(df,loop,tim):    
+    dfd=pd.DataFrame(columns=["Open","High","Low","Close"])
+    for i in range(loop):
+        lo=tim*i+0
+        up=tim*(i+1)-1
+        for rows in df[lo:up+1]:
+            cl=df.at[up,'c']
+            hi=max(df[lo:up+1]['h'])
+            low1=min(df[lo:up+1]['l'])
+            lw=df.at[lo,'o']
+        dfd=dfd.append({"Close":cl,"High":hi,"Low":low1,"Open":lw},ignore_index=True)     
+    hel(dfd)               
+            
+                    
+def conv(df3):
+    global fr
+    global to
+   
+    now = datetime.now()
+    
+    
+    dti=now.strftime("%d.%m.%Y")
+    #print("date=",dti)
+    
+    
+    date_time=dti+"  09:15:00"
+    pattern = '%d.%m.%Y %H:%M:%S'
+    fr = int(time.mktime(time.strptime(date_time, pattern)))
+    fr=str(fr)
+    
+
+    #dt_string = now.strftime("%d.%m.%Y %H:%M:%S")
+    dt_string = now.strftime("%d.%m.%Y")
+    dt_string = now.strftime("%d.%m.%Y")+"  09:30:00"
+    print("date and time =", dt_string)
+    pattern = '%d.%m.%Y %H:%M:%S'
+    to = int(time.mktime(time.strptime(dt_string, pattern)))
+    to=str(to)
+    
+    
+    tim=15
+    
+    for _ in range(25):
+        
+        fet(fr,to,tim,df3)
+        fr=str(int(fr)+900)
+        to=str(int(to)+900)
+        time.sleep(1)            
+
+
+
+
+
+
+###########################################LOGGER#############################################################       
+#Create and configure logger 
+logging.basicConfig(filename="newfile.log", 
+					format='%(asctime)s %(message)s', 
+					filemode='w') 
+
+#Creating an object 
+logger=logging.getLogger() 
+
+#Setting the threshold of logger to DEBUG 
+logger.setLevel(logging.DEBUG) 
+
+
+
+
+
+fileread()    
+
